@@ -1,73 +1,63 @@
 from collections import deque
 from hashlib import md5
 from typing import List, Tuple
+import enum
 import re
 import time
 
-from lex.core import BotModule, IntentPredictor, Intent, AuthoredMessage, IntentSelfMentionFilterMixin
+from lex.core import BotModule, IntentPredictor, Intent, AuthoredMessage, IntentSelfMentionFilterMixin, IntentPrediction,\
+    RegexIntentPredictor, LemmaRegexIntentPredictor
 from lex.utils import message as msg_utils
 
 
 __all__ = ['MysticBotModule']
 
 
-class UnknownIntent(Intent):
-    name = 'unknown'
-
-
-class MathIntent(Intent):
-    name = 'math'
-
-
-class WhosBestIntent(Intent):
-    name = 'whosbest'
-
-
-UNKNOWN_INTENT = UnknownIntent()
-MATH_INTENT = MathIntent()
-WHOS_BEST_INTENT = WhosBestIntent()
+class MysticIntentEnum(enum.Enum):
+    UNKNOWN = Intent('unknown')
+    MATH = Intent('math')
+    WHOS_BEST = Intent('whosbest')
 
 
 class UnknownIntentPredictor(IntentSelfMentionFilterMixin, IntentPredictor):
-    def on_predict(self, message: AuthoredMessage) -> List[Tuple[float, Intent]]:
-        return [(0.1, UNKNOWN_INTENT)]
+    def on_predict(self, message: AuthoredMessage) -> List[IntentPrediction]:
+        return [IntentPrediction(0.1, MysticIntentEnum.UNKNOWN.value)]
 
 
-class MathIntentPredictor(IntentSelfMentionFilterMixin, IntentPredictor):
-    pattern = re.compile(r'^([\+\-/\* \(\)\^]|\d|\.)+$')
-
-    def on_predict(self, message: AuthoredMessage) -> List[Tuple[float, Intent]]:
-        rel = self.pattern.match(message.message_content) is not None
-        return [(int(rel), MATH_INTENT)]
-
-
-class WhosBestIntentPredictor(IntentPredictor):
+class MathIntentPredictor(IntentSelfMentionFilterMixin, RegexIntentPredictor):
     def __init__(self):
+        super().__init__({re.compile(r'^([\+\-/\* \(\)\^]|\d|\.)+$'): MysticIntentEnum.MATH.value})
+
+
+class WhosBestIntentPredictor(LemmaRegexIntentPredictor):
+    def __init__(self):
+        super().__init__({re.compile(r'^(who be best|whos best|who be the best|whos the best).*$'): MysticIntentEnum.WHOS_BEST.value})
         self.last_authors = deque()
 
-    def on_predict(self, message: AuthoredMessage) -> List[Tuple[float, Intent]]:
+    def on_predict(self, message: AuthoredMessage) -> List[IntentPrediction]:
         self.last_authors.append((int(md5(f'{time.time()}{message.author_name}'.encode()).hexdigest(), 16), message.author_name))
         if len(self.last_authors) > 50: self.last_authors.popleft()
-        if not message.contains_self_mention:
-            return [(0, WHOS_BEST_INTENT)]
+        if not message.attributes['self-mention']:
+            return [IntentPrediction(0, MysticIntentEnum.WHOS_BEST.value)]
 
-        doc = msg_utils.nlp(message.message_content)
-        lemmatized = ' '.join([word.lemma for sent in doc.sentences for word in sent.words])
-        rel = int(lemmatized.startswith('who be best') or lemmatized.startswith('whos best') or lemmatized.startswith('who be the best'))
-        return [(rel, WHOS_BEST_INTENT)]
+        return super().on_predict(message)
 
-    async def __call__(self, message: AuthoredMessage):
+    async def __call__(self, message: AuthoredMessage, data):
         best_name = max(self.last_authors, key=lambda x: x[0])[1]
         await message.disc_message.channel.send(f'{best_name} is the best.')
 
 
-async def execute_math_message(message: AuthoredMessage):
+async def execute_math_message(message: AuthoredMessage, data):
     answer = float(msg_utils.eval_expr(message.message_content.replace('^', '**')))
     await message.disc_message.channel.send(f'Answer: {answer:.5}')
 
 
-async def execute_unknown_message(message: AuthoredMessage):
-    await message.disc_message.channel.send(f'I don\'t know how to answer that, {message.author_name}-chan! ;-;')
+async def execute_unknown_message(message: AuthoredMessage, data):
+    await message.disc_message.channel.send(f'I don\'t know how to answer that, {message.author_name}.')
+
+
+async def execute_nou(message: AuthoredMessage, data):
+    await message.disc_message.channel.send(f'no u')
 
 
 class MysticBotModule(BotModule):
@@ -75,15 +65,13 @@ class MysticBotModule(BotModule):
 
     def __init__(self):
         super().__init__()
-        self.register_intent(UNKNOWN_INTENT)
-        self.register_intent(MATH_INTENT)
-        self.register_intent(WHOS_BEST_INTENT)
+        self.register_intents([x.value for x in MysticIntentEnum])
 
         wb_predictor = WhosBestIntentPredictor()
         self.register_predictor(UnknownIntentPredictor())
         self.register_predictor(MathIntentPredictor())
         self.register_predictor(wb_predictor)
 
-        UNKNOWN_INTENT.register_handler(execute_unknown_message)
-        MATH_INTENT.register_handler(execute_math_message)
-        WHOS_BEST_INTENT.register_handler(wb_predictor)
+        MysticIntentEnum.UNKNOWN.value.register_handler(execute_unknown_message)
+        MysticIntentEnum.MATH.value.register_handler(execute_math_message)
+        MysticIntentEnum.WHOS_BEST.value.register_handler(wb_predictor)

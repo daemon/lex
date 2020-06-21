@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import List, Dict, Any
 import re
 
 import discord as disc
 
-from .intent import IntentPredictor, Intent, IntentRegistry
+from .intent import IntentPredictor, Intent, IntentRegistry, IntentPrediction
 import lex.core
 
 
@@ -16,7 +16,7 @@ class AuthoredMessage:
     disc_message: disc.Message
     message_content: str
     author_name: str
-    contains_self_mention: bool
+    attributes: Dict[str, Any] = field(default_factory=dict)
 
 
 class BotModule:
@@ -31,6 +31,10 @@ class BotModule:
     def register_intent(self, intent: Intent):
         intent.namespace = self.name
         IntentRegistry.instance().register(intent)
+
+    def register_intents(self, intents: List[Intent]):
+        for intent in intents:
+            self.register_intent(intent)
 
     def register_predictor(self, predictor: IntentPredictor):
         self.predictors.append(predictor)
@@ -58,17 +62,19 @@ class MinecraftDiscordCore(disc.Client):
             message_content = message.clean_content
         mtext = self.settings.mention_workaround
         mentioned = self.user in message.mentions or (mtext and mtext in message.clean_content) or \
-                f'@{self.user.display_name.lower()}' in message.clean_content.lower()
+            f'@{self.user.display_name.lower()}' in message.clean_content.lower()
         message_content = message_content.replace(f'@{self.user.display_name}', '')
         message_content = message_content.replace(f'@{self.user.display_name.lower()}', '')
         if mtext:
             message_content = message_content.replace(mtext, '')
         message_content = message_content.strip()
-        await self.on_authored_message(AuthoredMessage(message, message_content, author_name, contains_self_mention=mentioned))
+        amsg = AuthoredMessage(message, message_content, author_name)
+        amsg.attributes['self-mention'] = mentioned  # TODO: move to separate processing class
+        await self.on_authored_message(amsg)
 
     async def on_authored_message(self, message: AuthoredMessage):
         print(f'{message.author_name}> {message.message_content}')
         intents = [x for m in self.modules for p in m.predictors for x in p.predict(message)]
-        max_score, max_intent = max(intents, key=lambda x: x[0])
-        if max_score > 0:
-            await max_intent.handle(message)
+        max_pred = max(intents, key=lambda x: x.rel)  # type: IntentPrediction
+        if max_pred.rel > 0:
+            await max_pred.intent.handle(message, max_pred.data)
