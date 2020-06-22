@@ -7,7 +7,7 @@ def main():
     if settings.preset_name == 'mysticmessenger':
         core = MinecraftDiscordCore(settings, [dialogue.DialogueModule(dialogue.DialogueSettings())])
     else:
-        core = MinecraftDiscordCore(settings, [mystic.MysticBotModule()])
+        core = MinecraftDiscordCore(settings, [mystic.MysticBotModule(mystic.MysticSettings())])
     core.run(settings.api_token)
 
 

@@ -119,3 +119,7 @@ class RegexIntentPredictor(IntentPredictor):
                 pred.data['groups'] = m.groups()
             preds.append(pred)
         return preds
+
+
+class MentionedRegexIntentPredictor(IntentSelfMentionFilterMixin, RegexIntentPredictor):
+    pass
