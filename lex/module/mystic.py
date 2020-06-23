@@ -22,6 +22,7 @@ class MysticIntentEnum(enum.Enum):
     MATH = Intent('math')
     WHOS_BEST = Intent('whosbest')
     SAMPLE = Intent('sample')
+    REPLY = Intent('reply')
 
 
 class UnknownIntentPredictor(IntentSelfMentionFilterMixin, IntentPredictor):
@@ -83,13 +84,15 @@ class MysticBotModule(BotModule):
         self.register_predictor(UnknownIntentPredictor())
         self.register_predictor(MathIntentPredictor())
         self.register_predictor(wb_predictor)
-        self.register_predictor(MentionedRegexIntentPredictor({re.compile(r'^!whobest$'): MysticIntentEnum.WHOS_BEST.value}))
-        self.register_predictor(MentionedRegexIntentPredictor({re.compile(r'^(sample|generate|speak) (.+?)$', re.IGNORECASE): MysticIntentEnum.SAMPLE.value}))
+        self.register_predictor(MentionedRegexIntentPredictor({re.compile(r'^!whobest$'): MysticIntentEnum.WHOS_BEST.value,
+                                                               re.compile(r'^(sample|generate|speak)\s+(.+?)$', re.IGNORECASE): MysticIntentEnum.SAMPLE.value,
+                                                               re.compile(r'^(reply|respond)\s+(.+?)\s+(.+?)$', re.IGNORECASE): MysticIntentEnum.REPLY.value}))
 
         MysticIntentEnum.UNKNOWN.value.register_handler(execute_unknown_message)
         MysticIntentEnum.MATH.value.register_handler(execute_math_message)
         MysticIntentEnum.WHOS_BEST.value.register_handler(wb_predictor)
         MysticIntentEnum.SAMPLE.value.register_handler(self.sample_message)
+        MysticIntentEnum.REPLY.value.register_handler(self.sample_reply)
         self.settings = settings
         self.tokenizer = GPT2Tokenizer.from_pretrained(settings.sample_model)
         self.model = GPT2LMHeadModel.from_pretrained(settings.sample_model)
@@ -99,29 +102,36 @@ class MysticBotModule(BotModule):
         self.last_send_map = dict()
         self.last_notif_map = dict()
 
-    async def sample_message(self, message: AuthoredMessage, data, max_count=30):
-        if max_count == 30 and time.time() - self.last_send_map.get(message.author_name, 0) < self.settings.sample_cooldown:
-            if time.time() - self.last_notif_map.get(message.author_name, 0) > self.settings.sample_cooldown:
-                self.last_notif_map[message.author_name] = time.time()
-                await message.disc_message.channel.send(f'Please wait {self.settings.sample_cooldown} seconds between sample requests.')
+    async def check_delay(self, author_name: str, disc_channel):
+        if time.time() - self.last_send_map.get(author_name, 0) < self.settings.sample_cooldown:
+            if time.time() - self.last_notif_map.get(author_name, 0) > self.settings.sample_cooldown:
+                self.last_notif_map[author_name] = time.time()
+                await disc_channel.send(f'Please wait {self.settings.sample_cooldown} seconds between sample requests.')
+            return False
+        self.last_send_map[author_name] = time.time()
+        return True
+
+    async def sample_reply(self, message: AuthoredMessage, data):
+        if not await self.check_delay(message.author_name, message.disc_message.channel):
             return
-        self.last_send_map[message.author_name] = time.time()
+        target_username = data['groups'][1]
+        source_text = data['groups'][2]
+        await message.disc_message.channel.send(msg_utils.sample_gpt2_mc_dialogue(self.model,
+                                                                                  self.tokenizer,
+                                                                                  target_username,
+                                                                                  message.author_name,
+                                                                                  source_text))
+
+    async def sample_message(self, message: AuthoredMessage, data):
+        if not await self.check_delay(message.author_name, message.disc_message.channel):
+            return
         username = data['groups'][1]
-        ids = [self.tokenizer.encode(self.settings.sample_format.format(target=username))]
-        ids = torch.tensor(ids).cuda()
-        token_ids = self.model.generate(ids, do_sample=True, max_length=64, eos_token_id=self.tokenizer.encode(' |')[0])
-        token_ids = token_ids[0]
-        token_ids = token_ids[ids.size(1):]
-        text = self.tokenizer.decode(token_ids)
-        text = text.replace(' |', '').strip()
-        if '<|endoftext|>' in text:
-            idx = text.find('<|endoftext|>')
-            text = text[:idx]
-        if len(text) < 20 and max_count > 0:
-            await self.sample_message(message, data, max_count=max_count - 1)
-        else:
-            splits = username.split(' ', 1)
-            if len(splits) > 1:
-                text = f'{splits[1]} {text}'
-            username = splits[0]
-            await message.disc_message.channel.send(f'<{username}> {text}')
+        format_text = self.settings.sample_format.format(target=username)
+        if ' ' in username:  # contains conditional text
+            format_text = format_text.rstrip()
+        splits = format_text.split(' ', 1)
+        text = msg_utils.sample_gpt2(self.model, self.tokenizer, format_text)
+        if len(splits) > 1:
+            text = f'{splits[1]} {text}'
+        username = splits[0]
+        await message.disc_message.channel.send(f'<{username}> {text}')
