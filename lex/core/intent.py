@@ -102,6 +102,7 @@ class LemmaRegexIntentPredictor(IntentPredictor):
             pred = IntentPrediction(int(m is not None), intent)
             if m is not None:
                 pred.data['groups'] = m.groups()
+                pred.data['groupdict'] = m.groupdict()
             preds.append(pred)
         return preds
 

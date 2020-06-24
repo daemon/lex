@@ -39,12 +39,12 @@ def sample_gpt2(model, tokenizer, cond_text, max_length=64, eos_token=' |', max_
                                     eos_token_id=eos_token_id)
     token_ids = token_ids[0]
     token_ids = token_ids[ids.size(1):]
-    text = tokenizer.decode(token_ids)
-    text = text.replace(eos_token, '').strip()
+    text = tokenizer.decode(tokenizer.encode('a') + token_ids.tolist())[1:]
+    text = text.replace(eos_token, '').rstrip()
     if '<|endoftext|>' in text:
         idx = text.find('<|endoftext|>')
         text = text[:idx]
-    if len(text) < 20 and max_count > 0:
+    if len(text) < min_text_len and max_count > 0:
         return sample_gpt2(model,
                            tokenizer,
                            cond_text,
@@ -72,4 +72,4 @@ def sample_gpt2_mc_dialogue(model,
                            max_length=max_length,
                            max_count=max_count,
                            min_text_len=min_text_len)
-    return f'<{username_target}> {gen_text}'
+    return f'<{username_target}>{gen_text}'

@@ -1,10 +1,11 @@
-from collections import deque
+from collections import deque, defaultdict
 from hashlib import md5
-from typing import List, Tuple
+from typing import List, Dict
 import enum
 import re
 import time
 
+from discord import TextChannel
 from pydantic import BaseSettings
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import torch
@@ -70,7 +71,8 @@ class MysticSettings(BaseSettings):
     sample_format: str = '{target} '
     sample_model: str = 'gpt2-medium'
     sample_model_path: str = 'gpt2-medium.pt'
-    sample_cooldown: int = 30
+    sample_cooldown: int = 5
+    cooldowns: Dict[str, int] = ''
 
 
 class MysticBotModule(BotModule):
@@ -102,11 +104,12 @@ class MysticBotModule(BotModule):
         self.last_send_map = dict()
         self.last_notif_map = dict()
 
-    async def check_delay(self, author_name: str, disc_channel):
-        if time.time() - self.last_send_map.get(author_name, 0) < self.settings.sample_cooldown:
-            if time.time() - self.last_notif_map.get(author_name, 0) > self.settings.sample_cooldown:
+    async def check_delay(self, author_name: str, disc_channel: TextChannel):
+        cooldown = self.settings.cooldowns.get(disc_channel.name, self.settings.sample_cooldown)
+        if time.time() - self.last_send_map.get(author_name, 0) < cooldown:
+            if time.time() - self.last_notif_map.get(author_name, 0) > cooldown:
                 self.last_notif_map[author_name] = time.time()
-                await disc_channel.send(f'Please wait {self.settings.sample_cooldown} seconds between sample requests.')
+                await disc_channel.send(f'Please wait {cooldown} seconds between sample requests.')
             return False
         self.last_send_map[author_name] = time.time()
         return True
@@ -132,6 +135,6 @@ class MysticBotModule(BotModule):
         splits = format_text.split(' ', 1)
         text = msg_utils.sample_gpt2(self.model, self.tokenizer, format_text)
         if len(splits) > 1:
-            text = f'{splits[1]} {text}'
+            text = f' {splits[1]}{text}'
         username = splits[0]
-        await message.disc_message.channel.send(f'<{username}> {text}')
+        await message.disc_message.channel.send(f'<{username}>{text}')

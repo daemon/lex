@@ -1,5 +1,5 @@
 from lex.core import MinecraftDiscordCore, BotSettings
-from lex.module import mystic, dialogue
+from lex.module import mystic, dialogue, mystic_qa
 
 
 def main():
@@ -7,7 +7,8 @@ def main():
     if settings.preset_name == 'mysticmessenger':
         core = MinecraftDiscordCore(settings, [dialogue.DialogueModule(dialogue.DialogueSettings())])
     else:
-        core = MinecraftDiscordCore(settings, [mystic.MysticBotModule(mystic.MysticSettings())])
+        core = MinecraftDiscordCore(settings, [mystic.MysticBotModule(mystic.MysticSettings()),
+                                               mystic_qa.MysticQaBotModule(mystic_qa.QaSettings())])
     core.run(settings.api_token)
 
 
