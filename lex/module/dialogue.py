@@ -21,7 +21,7 @@ class DialogueSettings(BaseSettings):
     dialogue_punctuate: bool = True
     dialogue_selfname: str = '{0}'
     dialogue_model: str = 'gpt2-medium'
-    dialogue_min_length: int = 30
+    dialogue_min_length: int = 10
     dialogue_model_path: str = 'gpt2-medium-mm.pt'
 
 
@@ -51,7 +51,7 @@ class DialogueModule(BotModule):
         if author is None:
             author = self.settings.dialogue_selfname
         self.thread.append((author, text))
-        self.thread = self.thread[-10:]
+        self.thread = self.thread[-7:]
         target = self.settings.dialogue_target
         join = ' | ' if self.settings.dialogue_target_space else ' |'
         thread_messages = [' '.join(x) for x in self.thread]
@@ -71,8 +71,10 @@ class DialogueModule(BotModule):
             cond_ids = torch.tensor([cond_ids]).cuda()
             length = -1
             attempts = 0
-            skip = random.random() < 0.8
-            while length < self.settings.dialogue_min_length:
+            min_length = self.settings.dialogue_min_length
+            if random.random() < 0.2:
+                min_length = 20
+            while length < min_length or length == 0:
                 token_ids = self.model.generate(cond_ids, do_sample=True, max_length=128, eos_token_id=self.eos_id).tolist()
                 token_ids = token_ids[0]
                 token_ids = token_ids[cond_ids.size(1):]
@@ -83,12 +85,12 @@ class DialogueModule(BotModule):
                     text = text[:idx]
                 length = len(text)
                 attempts += 1
-                if attempts >= 10 or skip:
+                if attempts >= 20 and length != 0:
                     break
             await message.disc_message.channel.send(text.replace('{0}', message.author_name))
             return text
         orig_author = message.author_name
-        cond_text = self.make_dialogue(message.message_content.replace(message.author_name, '{0}'))
+        cond_text = self.make_dialogue(message.message_content, author=self.settings.dialogue_selfname)
         text = await step()
         counter = 0
 

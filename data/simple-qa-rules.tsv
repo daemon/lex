@@ -5,3 +5,4 @@ rule	response
 ^where (can|do) ({you}|i) vote.*$	how2vote
 ^where (can|could) ({you}|i) vote.*$	how2vote
 ^what (be )?vote url.*$	how2vote
+^how (do|can|to) ({you} |i )?bend\s*\?*	how2bend
